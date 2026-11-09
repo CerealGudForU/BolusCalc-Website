@@ -60,6 +60,12 @@ dt { color: var(--muted); font-weight: 400; } dd { margin: 0; font-family: var(-
 button { font: inherit; font-size: 0.72rem; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; padding: 12px 18px; border-radius: 0; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-fg); cursor: pointer; }
 button.link { border: 0; background: none; color: var(--muted); text-decoration: underline; padding: 12px 4px; }
 .foot { font-size: 0.82rem; color: var(--muted); font-weight: 400; letter-spacing: 0.02em; margin: 0; }
+.seg { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.seg .lbl { font-size: 1.05rem; font-weight: 500; letter-spacing: 0.04em; }
+.seg .opts { display: flex; }
+.seg button { padding: 10px 16px; background: var(--surface); color: var(--fg); border: 1.5px solid var(--accent); text-transform: none; letter-spacing: 0.04em; font-size: 0.95rem; }
+.seg button + button { border-left: 0; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
 </style>
 
 </head>
@@ -74,7 +80,8 @@ button.link { border: 0; background: none; color: var(--muted); text-decoration:
     <div style="display:flex;flex-direction:column;gap:20px">
       <fieldset>
         <legend>Your settings (saved on this device)</legend>
-        <div class="field"><label for="cr">Carb ratio <span class="unit">g per 1 unit</span></label>
+        <div class="seg" role="group" aria-label="Carb unit"><span class="lbl">Carbs measured in</span><span class="opts"><button type="button" id="u-g" aria-pressed="true">Grams</button><button type="button" id="u-ex" aria-pressed="false">Exchanges</button></span></div>
+        <div class="field"><label for="cr">Carb ratio <span class="unit" id="cr-unit">g per 1 unit</span></label>
           <input id="cr" inputmode="decimal" autocomplete="off" placeholder="e.g. 15"></div>
         <div class="field"><label for="isf">Sensitivity <span class="unit">mmol/L per 1 unit</span></label>
           <input id="isf" inputmode="decimal" autocomplete="off" placeholder="e.g. 3"></div>
@@ -87,7 +94,7 @@ button.link { border: 0; background: none; color: var(--muted); text-decoration:
         <legend>This meal</legend>
         <div class="field"><label for="cbg">Current BG <span class="unit">mmol/L</span></label>
           <input id="cbg" inputmode="decimal" autocomplete="off" placeholder="e.g. 9.4"></div>
-        <div class="field"><label for="carbs">Meal carbs <span class="unit">g</span></label>
+        <div class="field"><label for="carbs">Meal carbs <span class="unit" id="carbs-unit">g</span></label>
           <input id="carbs" inputmode="decimal" autocomplete="off" placeholder="e.g. 45"></div>
       </fieldset>
     </div>
@@ -109,6 +116,7 @@ button.link { border: 0; background: none; color: var(--muted); text-decoration:
   var saved = ["cr", "isf", "tbg", "wt"];
   var $ = function (id) { return document.getElementById(id); };
   var all = ["cr", "isf", "tbg", "wt", "cbg", "carbs"];
+  var unit = "g"; // "g" = grams, "ex" = carb exchanges
 
   function num(id) {
     var s = $(id).value.trim().replace(",", ".");
@@ -120,7 +128,7 @@ button.link { border: 0; background: none; color: var(--muted); text-decoration:
 
   // All dosing math is done in tenths of a unit (integers) so rounding down never drifts.
   function calc(v) {
-    var meal = v.carbs / v.cr;
+    var meal = unit === "ex" ? v.carbs * v.cr : v.carbs / v.cr; // exchange mode: ratio is units per 1 exchange
     var corr = Math.max(0, (v.cbg - v.tbg) / v.isf);
     var corrT = Math.floor(corr * 10 + 1e-9);
     var capT = Math.floor(v.wt + 1e-9); // 0.1 U/kg = 1 tenth of a unit per kg, applies to the correction only
@@ -154,7 +162,7 @@ button.link { border: 0; background: none; color: var(--muted); text-decoration:
         ' units (0.1 unit per kg). Only ' + fmt(r.capT) + ' units of correction were used.</div>';
     }
     html += "<dl>" +
-      row("Meal carbs ÷ ratio", r.meal.toFixed(2) + " U") +
+      row(unit === "ex" ? "Exchanges × ratio" : "Meal carbs ÷ ratio", r.meal.toFixed(2) + " U") +
       row("Correction (calculated)", r.corr.toFixed(2) + " U") +
       row("Correction limit (" + v.wt + " kg × 0.1)", fmt(r.capT) + " U") +
       row("Total (rounded down)", fmt(r.finalT) + " U") + "</dl>";
@@ -165,7 +173,7 @@ button.link { border: 0; background: none; color: var(--muted); text-decoration:
   var MEAL_KEY = "bolus-meal-v1", MEAL_MS = 60 * 60 * 1000;
   function save() {
     try {
-      var o = {}; saved.forEach(function (id) { o[id] = $(id).value; });
+      var o = {}; saved.forEach(function (id) { o[id] = $(id).value; }); o.unit = unit;
       localStorage.setItem(KEY, JSON.stringify(o));
       localStorage.setItem(MEAL_KEY, JSON.stringify({ cbg: $("cbg").value, carbs: $("carbs").value, t: Date.now() }));
     } catch (e) {}
@@ -174,6 +182,7 @@ button.link { border: 0; background: none; color: var(--muted); text-decoration:
     try {
       var o = JSON.parse(localStorage.getItem(KEY) || "{}");
       saved.forEach(function (id) { if (typeof o[id] === "string") $(id).value = o[id]; });
+      if (o.unit === "ex" || o.unit === "g") unit = o.unit;
       var m = JSON.parse(localStorage.getItem(MEAL_KEY) || "{}");
       if (m && typeof m.t === "number" && Date.now() - m.t < MEAL_MS) {
         if (typeof m.cbg === "string") $("cbg").value = m.cbg;
@@ -193,7 +202,26 @@ button.link { border: 0; background: none; color: var(--muted); text-decoration:
     render();
   });
 
-  load(); render();
+  function applyUnit() {
+    var ex = unit === "ex";
+    $("cr-unit").textContent = ex ? "units per 1 exchange" : "g per 1 unit";
+    $("carbs-unit").textContent = ex ? "exchanges" : "g";
+    $("cr").placeholder = ex ? "e.g. 1.5" : "e.g. 15";
+    $("carbs").placeholder = ex ? "e.g. 4" : "e.g. 45";
+    $("u-g").setAttribute("aria-pressed", ex ? "false" : "true");
+    $("u-ex").setAttribute("aria-pressed", ex ? "true" : "false");
+  }
+  function setUnit(u) {
+    if (u === unit) return;
+    unit = u;
+    // The old carb ratio and carbs mean something different in the new unit, so clear them.
+    $("cr").value = ""; $("carbs").value = "";
+    applyUnit(); save(); render();
+  }
+  $("u-g").addEventListener("click", function () { setUnit("g"); });
+  $("u-ex").addEventListener("click", function () { setUnit("ex"); });
+
+  load(); applyUnit(); render();
 })();
 </script>
 
