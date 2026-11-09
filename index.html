@@ -161,27 +161,35 @@ button.link { border: 0; background: none; color: var(--muted); text-decoration:
     out.innerHTML = html;
   }
 
+  // Settings are kept until forgotten. Meal fields are kept for 1 hour only, so an old blood sugar is never reused by mistake.
+  var MEAL_KEY = "bolus-meal-v1", MEAL_MS = 60 * 60 * 1000;
   function save() {
     try {
       var o = {}; saved.forEach(function (id) { o[id] = $(id).value; });
       localStorage.setItem(KEY, JSON.stringify(o));
+      localStorage.setItem(MEAL_KEY, JSON.stringify({ cbg: $("cbg").value, carbs: $("carbs").value, t: Date.now() }));
     } catch (e) {}
   }
   function load() {
     try {
       var o = JSON.parse(localStorage.getItem(KEY) || "{}");
       saved.forEach(function (id) { if (typeof o[id] === "string") $(id).value = o[id]; });
+      var m = JSON.parse(localStorage.getItem(MEAL_KEY) || "{}");
+      if (m && typeof m.t === "number" && Date.now() - m.t < MEAL_MS) {
+        if (typeof m.cbg === "string") $("cbg").value = m.cbg;
+        if (typeof m.carbs === "string") $("carbs").value = m.carbs;
+      }
     } catch (e) {}
   }
 
   all.forEach(function (id) {
-    $(id).addEventListener("input", function () { if (saved.indexOf(id) > -1) save(); render(); });
+    $(id).addEventListener("input", function () { save(); render(); });
   });
   $("f").addEventListener("submit", function (e) { e.preventDefault(); });
-  $("clear").addEventListener("click", function () { $("cbg").value = ""; $("carbs").value = ""; render(); $("cbg").focus(); });
+  $("clear").addEventListener("click", function () { $("cbg").value = ""; $("carbs").value = ""; save(); render(); $("cbg").focus(); });
   $("forget").addEventListener("click", function () {
     saved.forEach(function (id) { $(id).value = ""; });
-    try { localStorage.removeItem(KEY); } catch (e) {}
+    try { localStorage.removeItem(KEY); localStorage.removeItem(MEAL_KEY); } catch (e) {}
     render();
   });
 
